@@ -1,0 +1,60 @@
+on:
+  push:
+    paths: 
+      - 'web/**'
+    branches: ["main"]
+
+jobs:
+  build-and-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GCP 인증
+      - name: Set up Cloud SDK
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCR_CREDENTIALS }}
+      # docker 로그인      
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker      
+
+
+      # Docker build
+      - name: Build Docker image
+        run: |
+          docker build -t gcr.io/kdt1-finalproject/petclinic-web:${{ github.sha }} -f web/Dockerfile web
+
+      # Docker push
+      - name: Push Docker image
+        run: |
+          docker push gcr.io/kdt1-finalproject/petclinic-web:${{ github.sha }}
+
+      # k8s 레포 checkout
+      - name: Checkout petclinic_cd repo
+        uses: actions/checkout@v4
+        with:
+          repository: peach00angel/petclinic_cd
+          path: cd 
+
+      - name: Update image tag in deployment.yaml
+        run: |
+          sed -i "s|image: gcr.io/kdt1-finalproject/petclinic-web:.*|image: gcr.io/kdt1-finalproject/petclinic-web:${{ github.sha }}|" /web/web-deployment.yaml
+          
+      - name: Set git config
+        run: | 
+          git config --global user.name "peach00angel"
+          git config --global user.email "peach00angel@gmail.com" 
+      
+      - name: commit and push
+        run: |
+          cd k8s
+          git remote set-url origin https://github.com/peach00angel/petclinic_cd.git
+          git add k8s/web/web-deployment.yaml
+          git commit -m "Auto update image tag to ${{ github.sha }}"
+          git push origin main
+        env: 
+          GIT_AUTHOR_NAME: peach00angel
+          GIT_AUTHOR_EMAIL: peach00angel@gmail.com
+          GIT_COMMITTER_NAME: peach00angel
+          GIT_COMMITTER_EMAIL: peach00angel@gmail.com
